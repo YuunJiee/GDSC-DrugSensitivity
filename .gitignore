@@ -1,0 +1,38 @@
+# 系統檔案
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 虛擬環境
+.venv/
+venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 資料集與中間檔
+data/raw/
+data/interim/
+*.csv
+*.xlsx
+*.zip
+*.tar.gz
+!data/sample/
+
+# 模型與輸出
+models/
+checkpoints/
+results/
+*.h5
+*.pt
+*.pkl
+
+# IDE / 編輯器設定
+.vscode/
+.idea/
