@@ -1,8 +1,8 @@
 # 🧬 CE6146 Final Project — Genomics of Drug Sensitivity in Cancer (GDSC)
 
-> **Presentation Date:** 2025/12/11
-> **Goal:** Predict cancer drug sensitivity (IC50) using gene expression and deep learning.
-> **Dataset:** [Kaggle - Genomics of Drug Sensitivity in Cancer](https://www.kaggle.com/datasets/samiraalipour/genomics-of-drug-sensitivity-in-cancer-gdsc)
+- **Presentation Date:** 2025/12/11
+- **Goal:** Predict cancer drug sensitivity (IC50) using gene expression and deep learning.
+- **Dataset:** [Kaggle - Genomics of Drug Sensitivity in Cancer](https://www.kaggle.com/datasets/samiraalipour/genomics-of-drug-sensitivity-in-cancer-gdsc)
 
 ---
 
