@@ -6,6 +6,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.preprocessing import StandardScaler  # ⭐ 新增：用於特徵標準化
+
+# 導入深度學習模型
+from DL.deep_learning_model import preprocess_data_standalone
+from DL.deep_learning_model import run_deep_learning_pipeline
 
 # 設定繪圖風格
 plt.style.use('ggplot')
@@ -42,6 +47,9 @@ def preprocess_data(file_path):
 
     # 分割訓練/測試集
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+  
+    print(f"   -> 資料形狀: X_train={X_train.shape}, X_test={X_test.shape}")
 
     return X_train, X_test, y_train, y_test, feature_names
 
@@ -128,18 +136,99 @@ def evaluate_and_plot_comparison(y_test, rf_pred, xgb_pred, xgb_model, feature_n
 
 # --- 主程式執行區 ---
 if __name__ == "__main__":
-    file_path = 'Preprocessing\Data_imputed.csv'
-
+    file_path = 'Preprocessing/Data_imputed.csv' # Mac 檔案路徑
+    # file_path = 'Preprocessing\Data_imputed.csv' # Windows 檔案路徑
+    # 設定：是否執行深度學習模型
+    RUN_DEEP_LEARNING = True  # 設為 False 只執行基線模型
+    
     try:
+        print("\n" + "="*30)
+        print("GDSC 藥物敏感性預測專案")
+        print("="*30 + "\n")
+        
         # 1. 資料處理
         X_train, X_test, y_train, y_test, features = preprocess_data(file_path)
-
-        # 2. 分別訓練模型 (現在是獨立的函式呼叫)
+        
+        # 轉換為 numpy array（深度學習需要）
+        X_train_np = X_train.values if hasattr(X_train, 'values') else X_train
+        X_test_np = X_test.values if hasattr(X_test, 'values') else X_test
+        y_train_np = y_train.values if hasattr(y_train, 'values') else y_train
+        y_test_np = y_test.values if hasattr(y_test, 'values') else y_test
+        
+        print("\n" + "="*60)
+        print("開始訓練基線模型（機器學習）")
+        print("="*60)
+        
+        # 2. 分別訓練基線模型
         rf_model, rf_pred = train_rf_model(X_train, y_train, X_test)
         xgb_model, xgb_pred = train_xgb_model(X_train, y_train, X_test)
-
-        # 3. 統一評估
+        
+        # 3. 統一評估基線模型
         evaluate_and_plot_comparison(y_test, rf_pred, xgb_pred, xgb_model, features)
+        
+        # 4. 深度學習模型（選擇性執行）
+        if RUN_DEEP_LEARNING:
+            print("\n\n" + "="*60)
+            print("訓練深度學習模型功能啟用")
+            print("="*60)
+            
+            # ⭐ 深度學習使用獨立的資料預處理（Label Encoding）
+            # print("\n💡 注意：深度學習模型使用獨立的資料預處理流程（Label Encoding）")
+            # print("   這與基線模型的 One-Hot Encoding 不同，可能產生更好的結果\n")
+            
+            X_train_dl, X_test_dl, y_train_dl, y_test_dl, features_dl, encoders = \
+                preprocess_data_standalone(file_path)
+            
+            encoder, mlp_model, dl_pred, dl_metrics = run_deep_learning_pipeline(
+                X_train_dl, X_test_dl, y_train_dl, y_test_dl, features_dl
+            )
+            
+            print("\n" + "="*30)
+            print("所有模型訓練完成！")
+            print("="*30)
+            
+            # 最終比較
+            print("\n" + "="*60)
+            print("最終模型效能比較")
+            print("="*60)
+            print("\n說明：")
+            print("   - Random Forest & XGBoost: 使用 One-Hot Encoding")
+            print("   - Deep Learning: 使用 Label Encoding（獨立資料處理）")
+            print("   - 由於資料處理方式不同，測試集可能略有差異\n")
+            
+            rf_rmse = np.sqrt(mean_squared_error(y_test, rf_pred))
+            rf_r2 = r2_score(y_test, rf_pred)
+            xgb_rmse = np.sqrt(mean_squared_error(y_test, xgb_pred))
+            xgb_r2 = r2_score(y_test, xgb_pred)
+            
+            print(f"\n{'模型':<30} {'RMSE':<12} {'R²':<12}")
+            print("-"*60)
+            print(f"{'Random Forest':<30} {rf_rmse:<12.4f} {rf_r2:<12.4f}")
+            print(f"{'XGBoost':<30} {xgb_rmse:<12.4f} {xgb_r2:<12.4f}")
+            print(f"{'Deep Learning (Neural Net)':<30} {dl_metrics['RMSE']:<12.4f} {dl_metrics['R2']:<12.4f}")
+            print("="*60)
+            
+            # 判斷最佳模型
+            best_model = max(
+                [('Random Forest', rf_r2), 
+                 ('XGBoost', xgb_r2), 
+                 ('Deep Learning', dl_metrics['R2'])],
+                key=lambda x: x[1]
+            )
+            print(f"\n最佳模型: {best_model[0]} (R² = {best_model[1]:.4f})")
+            
+            print("\n生成的檔案:")
+            print("   基線模型:")
+            print("     - model_comparison.png")
+            print("   深度學習模型:")
+            print("     - dl_learning_curves.png")
+            print("     - dl_predictions_vs_actual.png")
+            print("     - dl_feature_importance.png")
+        else:
+            print("\n✓ 基線模型訓練完成（深度學習模型已跳過）")
+            print("   如需執行深度學習模型，請設定 RUN_DEEP_LEARNING = True")
 
     except Exception as e:
-        print(f"發生錯誤: {e}")
+        print(f"\n❌ 發生錯誤: {e}")
+        import traceback
+        traceback.print_exc()
