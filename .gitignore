@@ -1,4 +1,4 @@
-# 系統檔案
+# System Files
 .DS_Store
 Thumbs.db
 
@@ -7,36 +7,36 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-requirements.txt
-activate_env.sh
 
-
-# 虛擬環境
+# Virtual Environment
 .venv/
 venv/
+env/
 .env
 
-# Jupyter
+# Jupyter Notebooks
 .ipynb_checkpoints/
 
-# 資料集與中間檔
-data/raw/
-data/interim/
-*.csv
-*.xlsx
-*.zip
-*.tar.gz
-!data/sample/
+# Data (Ignore all data by default, assume large files)
+/data/
+!/data/.gitkeep
 
-# 模型與輸出
-models/
-checkpoints/
-results/
+# Models (Large binaries)
 *.h5
+*.keras
 *.pt
 *.pkl
+checkpoints/
+saved_models/
 
-# IDE / 編輯器設定
+# Logs and Temporary Results
+logs/
+wandb/
+
+# IDE Settings
 .vscode/
 .idea/
 
+# Legacy/Trash
+OldCode/
+*.sh

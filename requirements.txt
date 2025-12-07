@@ -1,0 +1,9 @@
+pandas
+numpy<2
+scikit-learn
+xgboost
+matplotlib
+seaborn
+tf-nightly[and-cuda]
+shap
+optuna

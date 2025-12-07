@@ -1,0 +1,57 @@
+{
+    "total_samples": 242035,
+    "total_features": 19,
+    "missing_values": {
+        "TCGA_DESC": {
+            "count": 1067,
+            "percent": 0.44084533228665274
+        },
+        "GDSC Tissue descriptor 1": {
+            "count": 9366,
+            "percent": 3.8696882682256697
+        },
+        "GDSC Tissue descriptor 2": {
+            "count": 9366,
+            "percent": 3.8696882682256697
+        },
+        "Cancer Type (matching TCGA label)": {
+            "count": 51446,
+            "percent": 21.255603528415314
+        },
+        "Microsatellite instability Status (MSI)": {
+            "count": 12353,
+            "percent": 5.103807300597022
+        },
+        "Screen Medium": {
+            "count": 9366,
+            "percent": 3.8696882682256697
+        },
+        "Growth Properties": {
+            "count": 9366,
+            "percent": 3.8696882682256697
+        },
+        "CNA": {
+            "count": 9366,
+            "percent": 3.8696882682256697
+        },
+        "Gene Expression": {
+            "count": 9366,
+            "percent": 3.8696882682256697
+        },
+        "Methylation": {
+            "count": 9366,
+            "percent": 3.8696882682256697
+        },
+        "TARGET": {
+            "count": 27155,
+            "percent": 11.219451732187494
+        }
+    },
+    "high_missing_features": [],
+    "skewed_features": [
+        {
+            "feature": "AUC",
+            "skewness": -2.40236343378069
+        }
+    ]
+}
