@@ -16,14 +16,16 @@ from xgboost import XGBRegressor
 from src.data.preprocessing import load_and_preprocess_dl, load_and_preprocess_baseline
 from src.models.deep_learning.deep_learning_model import GDSCNeuralNetwork
 
-def objective(trial, X_cell, X_drug, y):
+def objective(trial, X_cell, X_drug_num, X_drug_id, X_target, X_pathway, y, vocab_sizes):
     """
     Optuna objective function for optimizing Deep Learning hyperparameters.
     """
+    target_dim, pathway_dim, drug_vocab_size = vocab_sizes
+    
     # 1. Suggest Hyperparameters
     learning_rate = trial.suggest_float('learning_rate', 1e-4, 1e-2, log=True)
     batch_size = trial.suggest_categorical('batch_size', [32, 64, 128])
-    epochs = 30 # Reduced epochs for faster tuning, rely on early stopping
+    epochs = 20 # Reduced epochs for faster tuning
     
     # Model Architecture Hyperparameters
     hyperparams = {
@@ -56,23 +58,33 @@ def objective(trial, X_cell, X_drug, y):
 
     # 2. Split Data for Validation (Train/Val split separate from Test)
     # We split 20% from the provided training set for validation during tuning
-    X_cell_train, X_cell_val, X_drug_train, X_drug_val, y_train, y_val = train_test_split(
-        X_cell, X_drug, y, test_size=0.2, random_state=42
-    )
+    
+    arrays = [X_cell, X_drug_num, X_drug_id, X_target, X_pathway, y]
+    split_res = train_test_split(*arrays, test_size=0.2, random_state=42)
+    
+    X_cell_t, X_cell_v = split_res[0], split_res[1]
+    X_drug_num_t, X_drug_num_v = split_res[2], split_res[3]
+    X_drug_id_t, X_drug_id_v = split_res[4], split_res[5]
+    X_target_t, X_target_v = split_res[6], split_res[7]
+    X_pathway_t, X_pathway_v = split_res[8], split_res[9]
+    y_t, y_v = split_res[10], split_res[11]
 
     # 3. Model Building
     model = GDSCNeuralNetwork(
-        cell_input_dim=X_cell.shape[1],
-        drug_input_dim=X_drug.shape[1],
+        cell_input_dim=X_cell_t.shape[1],
+        drug_input_dim=X_drug_num_t.shape[1],
+        target_input_dim=target_dim,
+        pathway_input_dim=pathway_dim,
+        drug_vocab_size=drug_vocab_size,
         learning_rate=learning_rate,
         hyperparams=hyperparams
     )
     
-    # 4. Training (GDSCNeuralNetwork handles scaling internally)
+    # 4. Training
     history = model.fit(
-        [X_cell_train, X_drug_train], y_train,
-        X_val_list=[X_cell_val, X_drug_val],
-        y_val=y_val,
+        [X_cell_t, X_drug_num_t, X_drug_id_t, X_target_t, X_pathway_t], y_t,
+        X_val_list=[X_cell_v, X_drug_num_v, X_drug_id_v, X_target_v, X_pathway_v],
+        y_val=y_v,
         epochs=epochs,
         batch_size=batch_size
     )
@@ -154,16 +166,30 @@ def run_optimization(file_path, include_ids=True, n_trials=50, study_name='gdsc_
     X, y = None, None
     
     if model_type == 'dl':
-         X_cell_train, X_drug_train, _, _, y_train, _, _, _ = load_and_preprocess_dl(
+         dl_data = load_and_preprocess_dl(
             file_path, include_ids=include_ids
          )
-         # For DL objective, we pass individual inputs
-         if hasattr(X_cell_train, 'values'): X_cell_train = X_cell_train.values
-         if hasattr(X_drug_train, 'values'): X_drug_train = X_drug_train.values
-         if hasattr(y_train, 'values'): y_train = y_train.values
+         # Unpack new return values
+         X_train_tuple = dl_data[0]
+         y_train = dl_data[2]
+         # 6th element is dims: (target_dim, pathway_dim, drug_vocab_size)
+         input_dims = dl_data[6]
          
-         # DL Objective is special as it takes multiple inputs
-         func = lambda trial: objective(trial, X_cell_train, X_drug_train, y_train)
+         X_cell_train, X_drug_num_train, X_drug_id_train, X_target_train, X_pathway_train = X_train_tuple
+         
+         # For DL objective, we pass individual inputs
+         def to_vals(x): return x.values if hasattr(x, 'values') else x
+         
+         X_cell_train = to_vals(X_cell_train)
+         X_drug_num_train = to_vals(X_drug_num_train)
+         X_drug_id_train = to_vals(X_drug_id_train)
+         X_target_train = to_vals(X_target_train)
+         X_pathway_train = to_vals(X_pathway_train)
+         y_train = to_vals(y_train)
+         
+         # DL Objective
+         func = lambda trial: objective(trial, X_cell_train, X_drug_num_train, X_drug_id_train, X_target_train, X_pathway_train, y_train, input_dims)
+         
          
     else:
         # For ML models, use the baseline preprocessing (creates a single matrix)
@@ -194,7 +220,7 @@ def run_optimization(file_path, include_ids=True, n_trials=50, study_name='gdsc_
     print(f"   Running {n_trials} trials for {model_type}...")
     study.optimize(func, n_trials=n_trials)
     
-    print("\n✅ Optimization Completed!")
+    print("\\n✅ Optimization Completed!")
     print(f"   Best Trial Value (RMSE): {study.best_value:.4f}")
     print("   Best Hyperparameters:")
     for key, value in study.best_params.items():

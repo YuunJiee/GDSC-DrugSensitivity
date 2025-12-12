@@ -1,9 +1,11 @@
 pandas
 numpy<2
 scikit-learn
+scipy
+joblib
 xgboost
 matplotlib
 seaborn
-tf-nightly[and-cuda]
+tensorflow
 shap
 optuna

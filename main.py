@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+import pickle
+import joblib
 from sklearn.metrics import mean_squared_error, r2_score
 
 # 導入重構後的模組
@@ -44,6 +46,11 @@ def run_experiment(file_path, include_ids, run_baseline=True, run_dl=False):
         rf_model, rf_pred = train_rf_model(X_train, y_train, X_test)
         xgb_model, xgb_pred = train_xgb_model(X_train, y_train, X_test)
         
+        # Save Baseline Model
+        os.makedirs("results/models", exist_ok=True)
+        joblib.dump(xgb_model, f"results/models/xgboost_{mode_name}.pkl")
+        print(f"   -> XGBoost Model Saved: results/models/xgboost_{mode_name}.pkl")
+            
         # 1.3 評估
         rf_rmse, rf_r2, _ = calculate_metrics(y_test, rf_pred, f"Random Forest ({mode_name})")
         xgb_rmse, xgb_r2, _ = calculate_metrics(y_test, xgb_pred, f"XGBoost ({mode_name})")
@@ -73,27 +80,66 @@ def run_experiment(file_path, include_ids, run_baseline=True, run_dl=False):
         print(f"\n--- [Deep Learning] 訓練 ({mode_name}) ---")
         
         # 2.1 資料處理 (DL)
-        X_cell_train, X_drug_train, X_cell_test, X_drug_test, y_train_dl, y_test_dl, features_dl, encoders = \
-            load_and_preprocess_dl(file_path, include_ids=include_ids)
+        # Returns: (X_cell_train, X_drug_train, X_target_train, X_pathway_train), (X_test...), y_train, y_test, names, encoders, vocab_sizes
+        dl_data = load_and_preprocess_dl(file_path, include_ids=include_ids)
+        
+        X_train_tuple = dl_data[0] # (X_cell, X_drug_num, X_drug_id, X_target, X_pathway)
+        X_test_tuple = dl_data[1]
+        y_train_dl = dl_data[2]
+        y_test_dl = dl_data[3]
+        features_dl = dl_data[4]
+        encoders = dl_data[5]
+        input_dims = dl_data[6] # (target_dim, pathway_dim, drug_vocab_size)
         
         # 2.2 執行 Pipeline
         scalers, mlp_model, dl_pred, dl_metrics, history = run_deep_learning_pipeline(
-            X_cell_train, X_drug_train, X_cell_test, X_drug_test, y_train_dl, y_test_dl, features_dl
+            X_train_tuple, X_test_tuple, y_train_dl, y_test_dl, features_dl, input_dims
         )
         
         # 繪製學習曲線
         plot_training_history(history, f"results/figures/dl_learning_curves_{mode_name}.png")
         
+        # --- Save Model & Scalers ---
+        os.makedirs("results/models", exist_ok=True)
+        model_save_path = f"results/models/dl_model_{mode_name}.h5"
+        scalers_save_path = f"results/models/dl_scalers_{mode_name}.pkl"
+        
+        mlp_model.save(model_save_path)
+        with open(scalers_save_path, 'wb') as f:
+            pickle.dump(scalers, f)
+        print(f"   -> 已儲存模型: {model_save_path}")
+        print(f"   -> 已儲存 Scalers: {scalers_save_path}")
+
         # --- 新增: 可解釋性分析 (Explainability) ---
         # 1. Macro-Level: Branch Importance
         analyze_branch_importance(mlp_model, f"results/figures/dl_branch_importance_{mode_name}.png")
         
         # 2. Micro-Level: SHAP Values
-        # 注意: 這裡傳入的是原始數據的 list，SHAP 會自己處理
+        # Note: Model expects SCALED inputs.
+        scaler_cell, scaler_drug = scalers
+        
+        # Helper to scale data list
+        def scale_data_list(data_tuple):
+            x_c, x_d_num, x_d_id, x_t, x_p = data_tuple
+            
+            x_c_s = scaler_cell.transform(x_c)
+            
+            # Handle drug numeric
+            if x_d_num.shape[1] > 0:
+                x_d_num_s = scaler_drug.transform(x_d_num)
+            else:
+                x_d_num_s = np.zeros((x_d_num.shape[0], 1))
+            
+            # x_d_id, x_t, x_p do not need scaling
+            return [x_c_s, x_d_num_s, x_d_id, x_t, x_p]
+
+        X_train_list_scaled = scale_data_list(X_train_tuple)
+        X_test_list_scaled = scale_data_list(X_test_tuple)
+        
         analyze_shap_values(
             mlp_model, 
-            [X_cell_train, X_drug_train], 
-            [X_cell_test, X_drug_test], 
+            X_train_list_scaled, 
+            X_test_list_scaled, 
             features_dl, 
             f"results/figures/dl_shap_summary_{mode_name}.png"
         )
@@ -199,15 +245,16 @@ if __name__ == "__main__":
     try:
         if args.optimize:
             try:
-                print("\n=== 優化模式 ===")
-                print("1. Deep Learning (dl)")
-                print("2. Random Forest (rf)")
-                print("3. XGBoost (xgb)")
-                model_choice = input("輸入模型代號 (dl/rf/xgb) [預設: dl]: ").strip().lower()
-                if not model_choice: model_choice = 'dl'
-                if model_choice not in ['dl', 'rf', 'xgb']: model_choice = 'dl'
+                print("\n=== 優化模式 (預設 DL) ===")
+                # print("1. Deep Learning (dl)")
+                # print("2. Random Forest (rf)")
+                # print("3. XGBoost (xgb)")
+                # model_choice = input("輸入模型代號 (dl/rf/xgb) [預設: dl]: ").strip().lower()
+                # if not model_choice: model_choice = 'dl'
+                model_choice = 'dl' # User requested strictly DL optimization
+                print(f"👉 正在針對 {model_choice.upper()} 進行超參數優化 (20 trials)...")
                 
-                run_optimization(file_path, include_ids=True, model_type=model_choice)
+                run_optimization(file_path, include_ids=True, n_trials=20, model_type=model_choice)
             except KeyboardInterrupt:
                 print("\n優化已取消。")
         # 0. 執行 EDA

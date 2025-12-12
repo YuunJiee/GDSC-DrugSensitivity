@@ -2,133 +2,129 @@
 
 > **Course:** CE6146 Introduction to Deep Learning  
 > **Date:** December 2025  
-> **Goal:** Predict drug sensitivity (IC50) using Dual-Branch Deep Learning to solve the "Cold Start" problem in precision medicine.
+> **Goal:** Predict drug sensitivity ($IC_{50}$) using a Dual-Branch Deep Learning model to solve the "Cold Start" problem in precision medicine.
 
 ---
 
 ## 🌟 Overview
 
-This project implements a **Dual-Branch Neural Network** to predict cancer drug response ($IC_{50}$) based on genomic profiles and chemical properties. 
+This project implements a **Dual-Branch Neural Network** to predict cancer drug response ($IC_{50}$) leveraging both **genomic profiles** (Cell Lines) and **chemical properties** (Drugs).
 
-Unlike traditional "One Size Fits All" medicine, this model leverages **Precision Medicine** principles to identify which drugs will work for specific patients. A key focus is the **"Cold Start" problem**—predicting responses for **novel drugs** where no prior biological interaction data exists.
+The core challenge addressed is the **"Cold Start" problem**: predicting how a *novel drug* will affect a cell line without prior interaction data. By learning separate representations for biological and chemical features, our model generalizes better than traditional baselines.
 
 ### Key Achievements
-*   **Dual-Branch Architecture**: Separate encoders for Cell Line features (Genomics) and Drug features (Chemistry), fused for interaction prediction.
-*   **Superior Generalization**: Achieved **$R^2 = 0.65$** on unseen drugs (No IDs), outperforming XGBoost ($R^2 = 0.27$) by **~2.4x**.
-*   **Biological Validation**: Correctly identified the **Mitosis Pathway** as the global driver of sensitivity, validated via XGBoost Feature Importance and SHAP.
-*   **Optuna Optimization**: Automated hyperparameter tuning (50 trials) identified critical architectural constraints (e.g., wider layers for drug encoding).
+*   **Dual-Branch Architecture**: Specialized encoders for Cell Line features (Genomics) and Drug features (Chemistry).
+*   **Superior Generalization**: Achieved **$R^2 = 0.65$** on unseen drugs (Cold Start), significantly outperforming XGBoost ($R^2 = 0.27$).
+*   **Biological Validation**: Identified the **Mitosis Pathway** as a key driver of sensitivity, validated via SHAP analysis.
+*   **Optimization**: Automated hyperparameter tuning using Optuna to find the optimal architecture.
 
 ---
 
-## 📊 Performance Benchmark
+## 📊 Methodology
 
-We tested two scenarios:
-1.  **With IDs (Memorization)**: Easy task. Model can memorize "Drug A works on Cell B".
-2.  **No IDs (Generalization - Cold Start)**: Hard task. Model must learn biological rules.
+### The Model: Dual-Branch Neural Network
+1.  **Cell Line Encoder**: A deep, narrow MLP processes high-dimensional genomic features (Gene Expression, Mutation, CNV).
+2.  **Drug Encoder**: A wider MLP processes chemical descriptors and target information.
+3.  **Fusion Layer**: Concatenates embeddings from both branches to predict the $IC_{50}$ value.
 
-| Model | No IDs ($R^2$) | With IDs ($R^2$) | Note |
-| :--- | :--- | :--- | :--- |
-| **XGBoost (Baseline)** | 0.27 | **0.83** | Excellent memorizer, but fails to generalize. |
-| **Dual-Branch DL (Ours)** | **0.65** | 0.78 | **Maintains high performance using biological rules.** |
+### Performance Benchmark
+
+We compared our Deep Learning model against XGBoost and Random Forest in two scenarios:
+
+| Scenario | Description | XGBoost ($R^2$) | Ours (DL) ($R^2$) | Insight |
+| :--- | :--- | :--- | :--- | :--- |
+| **With IDs** | Training includes Drug IDs. Model can "memorize" interactions. | **0.83** | 0.78 | Baselines excel at memorization. |
+| **No IDs** | **Cold Start**. Drug IDs are hidden. Model must learn rules. | 0.27 | **0.65** | **DL generalizes significantly better.** |
+
+### 📈 Results Visualization
+
+![Experiment Comparison](assets/img/experiment_comparison.png)
+
+*Figure 1: Comparison of Model Performance ($R^2$) across different scenarios.*
 
 ---
 
-## �️ Installation
+## 🏗️ Project Structure
+
+```text
+GDSC-DrugSensitivity/
+├── assets/img/             # Static documentation images
+├── data/                   # Raw and Processed Data
+├── results/                # Output artifacts (Ignored by Git)
+├── scripts/                # Standalone utility scripts
+│   ├── run_leakage_test_dl.py       # Test for data leakage
+│   ├── run_shap_standalone.py       # Generate SHAP explainability plots
+│   └── run_ultimate_cheating_test.py # Control experiment (What if we cheat?)
+├── src/
+│   ├── data/               # Preprocessing pipelines & Imputation
+│   ├── models/             # Dual-Branch DL, XGBoost, & RF implementations
+│   ├── optimization/       # Optuna hyperparameter optimization logic
+│   └── utils/              # Evaluation metrics & Visualization help
+├── main.py                 # 🚀 Main entry point for the pipeline
+└── requirements.txt        # Python dependencies
+```
+
+---
+
+## 🛠️ Installation & Usage
 
 ### 1. Prerequisites
-*   Linux / macOS / Windows (WSL2 recommended)
 *   Python 3.10+
-*   NVIDIA GPU (Recommended for training)
+*   Standard CPU (No GPU required)
+*   Virtual Environment (Recommended to avoid dependency conflicts)
 
 ### 2. Setup
-Clone the repository and install dependencies:
+Clone the repository and set up your environment:
 
 ```bash
+# Create and activate a virtual environment (using Conda, venv, or others)
+# e.g., conda create -n gdsc_env python=3.10 && conda activate gdsc_env
+
 # Install Python dependencies
 pip install -r requirements.txt
-
-# (Optional) Verify GPU setup
-./setup_gpu.sh
 ```
 
----
+### 3. Data Preparation
+Download the dataset from [Kaggle](https://www.kaggle.com/datasets/samiraalipour/genomics-of-drug-sensitivity-in-cancer-gdsc/data) and place the `GDSC_DATASET.csv` in `data/raw/` (if not already present).
+The pipeline handles imputation and preprocessing automatically.
 
-## 🚀 Usage
-
-### 1. Data Preparation
-Place the raw dataset (`GDSC_DATASET.csv`) in `data/raw/` (or download from Kaggle).
-Then run the preprocessing pipeline:
-
-```bash
-python src/data/make_dataset.py
-```
-*This handles tissue-specific imputation and creates `data/processed/Data_imputed.csv`.*
-
-### 2. Run Experiments (Train & Evaluate)
-The main script runs the full pipeline:
-1.  **Experiment A (With IDs)**: train/eval baselines & DL.
-2.  **Experiment B (No IDs)**: train/eval baselines & DL.
-3.  **Visualization**: Generate comparison plots.
+### 4. Running the Main Pipeline
+The `main.py` script orchestrates the entire workflow:
+1.  Trains & Evaluates models (DL vs Baselines).
+2.  Runs both "With IDs" and "No IDs" experiments.
+3.  Generates comparison plots in `results/figures/`.
 
 ```bash
 python main.py
 ```
 
-### 3. Explainability Analysis
-To reproduce the SHAP and Importance plots:
+### 5. Running Analysis Scripts
+You can run specific analysis scripts located in `scripts/`:
 
-```bash
-python src/experiments/run_explainability.py
-# (Or ensures it runs as part of the main pipeline)
-```
-
----
-
-## � Project Structure
-
-```text
-GDSC-DrugSensitivity/
-├── data/                   # Raw and Processed Data (Ignored by Git)
-├── results/                # Figures, Tables, and Optimization logs
-│   ├── figures/            # Learning curves, R2 comparisons, SHAP plots
-│   └── optimization/       # Optuna history
-├── src/
-│   ├── data/               # Preprocessing & Imputation logic
-│   ├── models/             # Dual-Branch DL & XGBoost/RF Baselines
-│   ├── optimization/       # Optuna Hyperparameter Tuning
-│   └── utils/              # Evaluation metrics & Visualization tools
-├── main.py                 # Main pipeline entry point
-├── setup_gpu.sh            # GPU configuration utility
-└── requirements.txt        # Dependency list
-```
+*   **Explainability (SHAP)**:
+    ```bash
+    python scripts/run_shap_standalone.py --mode No_IDs
+    ```
+*   **Leakage Test**:
+    ```bash
+    python scripts/run_leakage_test_dl.py
+    ```
 
 ---
 
-## � Methodology Details
+## 🔍 Experiments Explained
 
-### 1. Feature Engineering (The "Inputs")
-*   **Genomic Features**: Gene Expression, Mutation status, Copy Number Variations (CNV).
-*   **Drug Features**: Target Pathway, Molecular targets.
-*   **Disease Context**: Tissue type (Lung, Skin, Blood, etc.).
+*   **Cold Start Problem**: We simulating "New Drugs" by removing Drug IDs from the features. This forces the model to look at *Target Pathways* and *Chemical Descriptors* rather than just memorizing "Drug 1032 works on Cell 5".
+*   **Cheating Test**: We deliberately fed "Future Information" (like AUC scores) into a control model to see the theoretical maximum performance ($R^2 \approx 0.99$), confirming our main model isn't leaking data ($R^2 \approx 0.65$).
 
-### 2. The Model (Dual-Branch)
-*   **Cell Encoder**: Deep, narrow layers (handling sparse genomic data).
-*   **Drug Encoder**: Wide layers (handling complex chemical interactions).
-*   **Fusion**: Concatenation -> Dense -> Output ($LN\_IC_{50}$).
+### 🧠 Explainability (SHAP Analysis)
 
-### 3. Optimization
-*   **Loss Function**: MSE (Mean Squared Error).
-*   **Optimizer**: AdamW with Weight Decay.
-*   **Hyperparameter Search**: Optuna (Bayesian Optimization) for Learning Rate, Dropout, and Layer dimensions.
+We analyzed feature contributions to understand what drives the model's predictions.
 
----
-
-## � Contributors
-
-*   **YuunJiee** (Lead Developer & Deep Learning Implementation)
-*   *[Other Team Members]*
+![Branch Importance](assets/img/dl_branch_importance_No_IDs.png)
+*Figure 2: Importance of different data modalities. The model relies heavily on Pathway information for generalization.*
 
 ---
 
 ## 📜 License
-Educational Project for CE6146.
+Educational Project for CE6146 at NTU.

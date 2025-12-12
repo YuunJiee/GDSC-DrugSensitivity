@@ -16,13 +16,16 @@ from src.config import ModelConfig
 from src.utils.evaluation import evaluate_dl_model
 # Visualization is now handled by the caller, not inside the model class
 
-from tensorflow.keras.layers import Input, Dense, Dropout, BatchNormalization, Concatenate
+from tensorflow.keras.layers import Input, Dense, Dropout, BatchNormalization, Concatenate, Embedding, Flatten
 from tensorflow.keras.models import Model
 
 class GDSCNeuralNetwork:
-    def __init__(self, cell_input_dim, drug_input_dim, learning_rate=0.001, hyperparams=None):
+    def __init__(self, cell_input_dim, drug_input_dim, target_input_dim=None, pathway_input_dim=None, drug_vocab_size=0, learning_rate=0.001, hyperparams=None):
         self.cell_input_dim = cell_input_dim
         self.drug_input_dim = drug_input_dim
+        self.target_input_dim = target_input_dim
+        self.pathway_input_dim = pathway_input_dim
+        self.drug_vocab_size = drug_vocab_size # For Drug ID Embedding
         self.learning_rate = learning_rate
         
         # Default hyperparameters (Optimized)
@@ -34,37 +37,79 @@ class GDSCNeuralNetwork:
             
         self.model = self._build_model()
         self.scaler_cell = StandardScaler()
+        # Scale drug numeric only
         self.scaler_drug = StandardScaler()
         
     def _build_model(self):
-        """建立雙塔深度神經網路模型 (Dual-Branch Network)"""
+        """建立多輸入深度神經網路模型 (Multi-Input Network)"""
+        inputs_list = []
+        features_to_concat = []
+
         # --- Branch 1: Cell Line Features ---
         cell_input = Input(shape=(self.cell_input_dim,), name='cell_input')
+        inputs_list.append(cell_input)
         x_cell = cell_input
         
         for i in range(self.hp['cell_layers']):
             units = self.hp['cell_units'][i] if isinstance(self.hp['cell_units'], list) else self.hp['cell_units']
             x_cell = Dense(units, activation='relu')(x_cell)
             x_cell = BatchNormalization()(x_cell)
-            if i < self.hp['cell_layers'] - 1: # No dropout after last layer of branch usually, but original had. Keeping original logic roughly.
-                 # Wait, original had dropout after 1st layer, not 2nd. 
-                 # Let's simple apply dropout after each block except maybe the last one before concat if needed, 
-                 # but usually dropout is fine everywhere.
-                 pass
-            x_cell = Dropout(self.hp['cell_dropout'])(x_cell)
+            x_cell = Dropout(self.hp['cell_dropout'])(x_cell) 
+        features_to_concat.append(x_cell)
 
-        # --- Branch 2: Drug Features ---
-        drug_input = Input(shape=(self.drug_input_dim,), name='drug_input')
-        x_drug = drug_input
+        # --- Branch 2: Drug Numerical Features ---
+        drug_num_input = Input(shape=(max(1, self.drug_input_dim),), name='drug_numeric_input')
+        inputs_list.append(drug_num_input)
         
-        for i in range(self.hp['drug_layers']):
-            units = self.hp['drug_units'][i] if isinstance(self.hp['drug_units'], list) else self.hp['drug_units']
-            x_drug = Dense(units, activation='relu')(x_drug)
-            x_drug = BatchNormalization()(x_drug)
-            x_drug = Dropout(self.hp['drug_dropout'])(x_drug)
+        if self.drug_input_dim > 0:
+            x_drug = drug_num_input
+            for i in range(self.hp['drug_layers']):
+                units = self.hp['drug_units'][i] if isinstance(self.hp['drug_units'], list) else self.hp['drug_units']
+                x_drug = Dense(units, activation='relu')(x_drug)
+                x_drug = BatchNormalization()(x_drug)
+                x_drug = Dropout(self.hp['drug_dropout'])(x_drug)
+            features_to_concat.append(x_drug)
+        else:
+            # If 0 dim, we expect dummy input (shape=(1,)) which contains all zeros
+            # We MUST connect it to the graph. We can just append it to features.
+            # Input is already float32 by default.
+            x_drug = drug_num_input
+            features_to_concat.append(x_drug)
+
+        # --- Branch 3: Drug ID Embedding (New) ---
+        drug_id_input = Input(shape=(1,), name='drug_id_input')
+        inputs_list.append(drug_id_input)
+        
+        if self.drug_vocab_size > 0:
+            # Embedding dimension
+            drug_emb_dim = 16 
+            x_drug_id = Embedding(input_dim=self.drug_vocab_size + 1, output_dim=drug_emb_dim, name='drug_embedding')(drug_id_input)
+            x_drug_id = Flatten()(x_drug_id)
+            features_to_concat.append(x_drug_id)
+        else:
+            # No embedding (No_IDs mode or empty)
+            # Dummy input (zeros), append directly
+            x_drug_id = drug_id_input
+            features_to_concat.append(x_drug_id)
+
+        # --- Branch 4: Target Features (Multi-Hot) ---
+        target_emb_dim = 16 
+        target_input = Input(shape=(self.target_input_dim,), name='target_input')
+        inputs_list.append(target_input)
+        
+        x_target = Dense(target_emb_dim, activation='relu', name='target_projection')(target_input)
+        features_to_concat.append(x_target)
+        
+        # --- Branch 5: Pathway Features (One-Hot) ---
+        pathway_emb_dim = 16
+        pathway_input = Input(shape=(self.pathway_input_dim,), name='pathway_input')
+        inputs_list.append(pathway_input)
+        
+        x_pathway = Dense(pathway_emb_dim, activation='relu', name='pathway_projection')(pathway_input)
+        features_to_concat.append(x_pathway)
         
         # --- Fusion Layer ---
-        combined = Concatenate()([x_cell, x_drug])
+        combined = Concatenate()(features_to_concat)
         x = combined
         
         for i in range(self.hp['fusion_layers']):
@@ -77,7 +122,7 @@ class GDSCNeuralNetwork:
         
         output = Dense(1, activation='linear', name='output')(x)
         
-        model = Model(inputs=[cell_input, drug_input], outputs=output, name='Dual_Branch_Network')
+        model = Model(inputs=inputs_list, outputs=output, name='Multi_Input_Network')
         
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate),
@@ -89,26 +134,39 @@ class GDSCNeuralNetwork:
     def fit(self, X_train_list, y_train, X_val_list=None, y_val=None, epochs=100, batch_size=64):
         """
         訓練模型
-        :param X_train_list: [X_cell_train, X_drug_train]
+        :param X_train_list: [X_cell, X_drug_num, X_drug_id, X_target, X_pathway]
         """
-        X_cell_train, X_drug_train = X_train_list
+        X_cell_train, X_drug_num_train, X_drug_id_train, X_target_train, X_pathway_train = X_train_list
         
-        # Scale data separately
+        # Scale numerical data separately
         X_cell_train_scaled = self.scaler_cell.fit_transform(X_cell_train)
-        X_drug_train_scaled = self.scaler_drug.fit_transform(X_drug_train)
+        
+        # Handle X_drug numeric
+        if self.drug_input_dim > 0:
+            X_drug_num_train_scaled = self.scaler_drug.fit_transform(X_drug_num_train)
+        else:
+            # Create dummy zeros
+            X_drug_num_train_scaled = np.zeros((X_drug_num_train.shape[0], 1))
+            
+        train_inputs = [X_cell_train_scaled, X_drug_num_train_scaled, X_drug_id_train, X_target_train, X_pathway_train]
         
         validation_data = None
         if X_val_list is not None and y_val is not None:
-            X_cell_val, X_drug_val = X_val_list
+            X_cell_val, X_drug_num_val, X_drug_id_val, X_target_val, X_pathway_val = X_val_list
             X_cell_val_scaled = self.scaler_cell.transform(X_cell_val)
-            X_drug_val_scaled = self.scaler_drug.transform(X_drug_val)
-            validation_data = ([X_cell_val_scaled, X_drug_val_scaled], y_val)
+            
+            if self.drug_input_dim > 0:
+                X_drug_num_val_scaled = self.scaler_drug.transform(X_drug_num_val)
+            else:
+                X_drug_num_val_scaled = np.zeros((X_drug_num_val.shape[0], 1))
+            
+            validation_data = ([X_cell_val_scaled, X_drug_num_val_scaled, X_drug_id_val, X_target_val, X_pathway_val], y_val)
             
         early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
         reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6, verbose=1)
         
         history = self.model.fit(
-            [X_cell_train_scaled, X_drug_train_scaled], y_train,
+            train_inputs, y_train,
             validation_data=validation_data,
             epochs=epochs,
             batch_size=batch_size,
@@ -119,10 +177,15 @@ class GDSCNeuralNetwork:
 
     def predict(self, X_list):
         """預測"""
-        X_cell, X_drug = X_list
+        X_cell, X_drug_num, X_drug_id, X_target, X_pathway = X_list
         X_cell_scaled = self.scaler_cell.transform(X_cell)
-        X_drug_scaled = self.scaler_drug.transform(X_drug)
-        return self.model.predict([X_cell_scaled, X_drug_scaled], verbose=0).flatten()
+        
+        if self.drug_input_dim > 0:
+            X_drug_num_scaled = self.scaler_drug.transform(X_drug_num)
+        else:
+            X_drug_num_scaled = np.zeros((X_drug_num.shape[0], 1))
+            
+        return self.model.predict([X_cell_scaled, X_drug_num_scaled, X_drug_id, X_target, X_pathway], verbose=0).flatten()
 
 def check_gpu_availability():
     """檢查並顯示 GPU 狀態"""
@@ -138,89 +201,79 @@ def check_gpu_availability():
         print("⚠️  未找到 GPU，將使用 CPU 訓練")
     print("="*60 + "\n")
 
-def run_cv_deep_learning(X, y, n_splits=5, epochs=50, batch_size=64):
+def run_cv_deep_learning_dummy(X, y, n_splits=5, epochs=50, batch_size=64):
     """
-    執行 K-Fold Cross-Validation
+    Placeholder.
     """
-    print(f"\n🔄 執行 {n_splits}-Fold Cross-Validation...")
-    kfold = KFold(n_splits=n_splits, shuffle=True, random_state=ModelConfig.RANDOM_SEED)
-    
-    fold_metrics = []
-    
-    # Pre-scale X for CV to avoid fitting scaler inside loop if we assume X is already numeric
-    # But strictly speaking we should fit scaler on train fold only.
-    
-    for fold, (train_idx, val_idx) in enumerate(kfold.split(X, y)):
-        print(f"\n   Fold {fold+1}/{n_splits}")
-        
-        X_train_fold, X_val_fold = X[train_idx], X[val_idx]
-        y_train_fold, y_val_fold = y[train_idx], y[val_idx]
-        
-        # Initialize model
-        nn_model = GDSCNeuralNetwork(input_dim=X.shape[1])
-        
-        # Train
-        # Note: fit() handles scaling internally
-        nn_model.fit(X_train_fold, y_train_fold, X_val_fold, y_val_fold, epochs=epochs, batch_size=batch_size)
-        
-        # Evaluate
-        y_pred = nn_model.predict(X_val_fold)
-        r2 = r2_score(y_val_fold, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_val_fold, y_pred))
-        
-        print(f"     -> R2: {r2:.4f}, RMSE: {rmse:.4f}")
-        fold_metrics.append({'R2': r2, 'RMSE': rmse})
-        
-    # 計算平均指標
-    avg_r2 = np.mean([m['R2'] for m in fold_metrics])
-    avg_rmse = np.mean([m['RMSE'] for m in fold_metrics])
-    
-    print(f"\n✅ CV 結果: 平均 R2 = {avg_r2:.4f}, 平均 RMSE = {avg_rmse:.4f}")
-    return avg_r2, avg_rmse
+    print("⚠️ K-Fold CV not adapted yet.")
+    return 0.0, 0.0
 
-def run_deep_learning_pipeline(X_cell_train, X_drug_train, X_cell_test, X_drug_test, y_train, y_test, feature_names):
+def run_deep_learning_pipeline(X_train_tuple, X_test_tuple, y_train, y_test, feature_names, input_dims):
     """
-    執行完整的深度學習 Pipeline (Dual-Branch)
+    執行完整的深度學習 Pipeline
     """
     print("\n" + "="*60)
-    print("深度學習模型訓練開始 (Dual-Branch Architecture)")
+    print("深度學習模型訓練開始 (Multi-Input with Drug Embedding)")
     print("="*60)
     
     check_gpu_availability()
     
-    # 1. 資料格式轉換
-    if hasattr(X_cell_train, 'values'): X_cell_train = X_cell_train.values
-    if hasattr(X_drug_train, 'values'): X_drug_train = X_drug_train.values
-    if hasattr(X_cell_test, 'values'): X_cell_test = X_cell_test.values
-    if hasattr(X_drug_test, 'values'): X_drug_test = X_drug_test.values
-    if hasattr(y_train, 'values'): y_train = y_train.values
-    if hasattr(y_test, 'values'): y_test = y_test.values
+    # Unpack 5 elements
+    X_cell_train, X_drug_num_train, X_drug_id_train, X_target_train, X_pathway_train = X_train_tuple
+    X_cell_test, X_drug_num_test, X_drug_id_test, X_target_test, X_pathway_test = X_test_tuple
     
-    # 3. 驗證集切分 (需同時切分 Cell 和 Drug)
-    # train_test_split 可以同時處理多個 array
-    X_cell_train_final, X_cell_val, X_drug_train_final, X_drug_val, y_train_final, y_val = train_test_split(
-        X_cell_train, X_drug_train, y_train, 
+    # Unpack 3 dims
+    target_dim, pathway_dim, drug_vocab_size = input_dims
+    
+    # 1. 資料格式轉換 (Ensure arrays)
+    def to_numpy(x): return x.values if hasattr(x, 'values') else x
+    
+    X_cell_train = to_numpy(X_cell_train)
+    X_drug_num_train = to_numpy(X_drug_num_train)
+    X_drug_id_train = to_numpy(X_drug_id_train) # ID (int)
+    # Target/Pathway already numpy
+    
+    X_cell_test = to_numpy(X_cell_test)
+    X_drug_num_test = to_numpy(X_drug_num_test)
+    X_drug_id_test = to_numpy(X_drug_id_test)
+    
+    y_train = to_numpy(y_train)
+    y_test = to_numpy(y_test)
+    
+    # 3. 驗證集切分
+    # Split all 6 arrays
+    arrays = [X_cell_train, X_drug_num_train, X_drug_id_train, X_target_train, X_pathway_train, y_train]
+    split_res = train_test_split(
+        *arrays,
         test_size=ModelConfig.TEST_SIZE, random_state=ModelConfig.RANDOM_SEED
     )
     
+    X_cell_t, X_cell_v = split_res[0], split_res[1]
+    X_drug_num_t, X_drug_num_v = split_res[2], split_res[3]
+    X_drug_id_t, X_drug_id_v = split_res[4], split_res[5]
+    X_target_t, X_target_v = split_res[6], split_res[7]
+    X_pathway_t, X_pathway_v = split_res[8], split_res[9]
+    y_t, y_v = split_res[10], split_res[11]
+    
     # 4. 建立與訓練模型
     nn_model = GDSCNeuralNetwork(
-        cell_input_dim=X_cell_train.shape[1],
-        drug_input_dim=X_drug_train.shape[1],
+        cell_input_dim=X_cell_t.shape[1],
+        drug_input_dim=X_drug_num_t.shape[1],
+        target_input_dim=target_dim,
+        pathway_input_dim=pathway_dim,
+        drug_vocab_size=drug_vocab_size,
         learning_rate=ModelConfig.DL_PARAMS['learning_rate']
     )
     
     history = nn_model.fit(
-        [X_cell_train_final, X_drug_train_final], y_train_final, 
-        [X_cell_val, X_drug_val], y_val, 
+        [X_cell_t, X_drug_num_t, X_drug_id_t, X_target_t, X_pathway_t], y_t,
+        [X_cell_v, X_drug_num_v, X_drug_id_v, X_target_v, X_pathway_v], y_v,
         epochs=ModelConfig.DL_PARAMS['epochs'], 
         batch_size=ModelConfig.DL_PARAMS['batch_size']
     )
     
     # 5. 評估模型
-    y_pred = nn_model.predict([X_cell_test, X_drug_test])
+    y_pred = nn_model.predict([X_cell_test, X_drug_num_test, X_drug_id_test, X_target_test, X_pathway_test])
     metrics = evaluate_dl_model(y_test, y_pred)
     
-    # Return objects for visualization in main.py or caller
-    # 回傳兩個 scaler (tuple)
     return (nn_model.scaler_cell, nn_model.scaler_drug), nn_model.model, y_pred, metrics, history

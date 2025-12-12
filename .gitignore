@@ -37,6 +37,8 @@ wandb/
 .vscode/
 .idea/
 
+# Results (Generated outputs)
+results/
+
 # Legacy/Trash
 OldCode/
-*.sh
