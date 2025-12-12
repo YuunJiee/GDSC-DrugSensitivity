@@ -121,10 +121,7 @@ You can run specific analysis scripts located in `scripts/`:
 
 We analyzed feature contributions to understand what drives the model's predictions.
 
-![Branch Importance](assets/img/dl_branch_importance_No_IDs.png)
-*Figure 2: Importance of different data modalities. The model relies heavily on Pathway information for generalization.*
+![SHAP Summary](assets/img/dl_shap_summary_No_IDs.png)
+*Figure 2: SHAP Summary Plot showing the top 20 features driving the model's predictions. Target Pathway features consistently rank as the most important determinants for drug sensitivity in the absence of known Drug IDs.*
 
----
 
-## 📜 License
-Educational Project for CE6146 at NTU.
