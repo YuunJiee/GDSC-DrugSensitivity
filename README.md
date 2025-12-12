@@ -14,7 +14,7 @@ The core challenge addressed is the **"Cold Start" problem**: predicting how a *
 
 ### Key Achievements
 *   **Dual-Branch Architecture**: Specialized encoders for Cell Line features (Genomics) and Drug features (Chemistry).
-*   **Superior Generalization**: Achieved **$R^2 = 0.65$** on unseen drugs (Cold Start), significantly outperforming XGBoost ($R^2 = 0.27$).
+*   **Superior Generalization**: Achieved **$R^2 = 0.68$** on unseen drugs (Cold Start), significantly outperforming XGBoost ($R^2 = 0.24$).
 *   **Biological Validation**: Identified the **Mitosis Pathway** as a key driver of sensitivity, validated via SHAP analysis.
 *   **Optimization**: Automated hyperparameter tuning using Optuna to find the optimal architecture.
 
@@ -33,8 +33,8 @@ We compared our Deep Learning model against XGBoost and Random Forest in two sce
 
 | Scenario | Description | XGBoost ($R^2$) | Ours (DL) ($R^2$) | Insight |
 | :--- | :--- | :--- | :--- | :--- |
-| **With IDs** | Training includes Drug IDs. Model can "memorize" interactions. | **0.83** | 0.78 | Baselines excel at memorization. |
-| **No IDs** | **Cold Start**. Drug IDs are hidden. Model must learn rules. | 0.27 | **0.65** | **DL generalizes significantly better.** |
+| **Using Drug IDs** | Memorization Task. Model "knows" the drug. | **0.76** (RF) | **0.77** | Baselines compete well when memorization is possible. |
+| **Cold Start** | **Generalization Task**. Drug IDs hidden. | 0.24 (XGB/RF) | **0.68** | **DL generalizes significantly better (~2.8x improvement).** |
 
 ### 📈 Results Visualization
 
